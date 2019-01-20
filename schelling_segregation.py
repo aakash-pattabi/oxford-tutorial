@@ -2,13 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-## Let the two types of agents be represented by +1 (A) and -1 (B) on the gridworld map
+## Let the two types of agents be represented by +1 (A) and -1 (B) on the gridworld
 A = 1
 B = -1
+NO_OCCUPANT = 0
 
-## Schelling swap model where the arbitrarily sized gridworld is completely occupied
 class SchellingSegregationModel(object):
-	def __init__(self, dim, tau, max_iter = 100):
+	def __init__(self, dim, tau, max_iter):
 		self.dim = dim
 		self.tau = tau
 		self.max_iter = max_iter
@@ -19,61 +19,104 @@ class SchellingSegregationModel(object):
 		self.unhappy_Bs = []
 
 		self.ims = []
+
+	def compute_happiness(self):
+		for row in range(self.dim):
+			for column in range(self.dim):
+				## What's the more efficient way to do this?
+				neighborhood = self.gridworld[row:(row+3),column:(column+3)].copy() 
+				cell = neighborhood[1, 1]
+				neighborhood[1, 1] = 0
+				current_happiness = 0 if np.all(neighborhood == 0) else \
+					(1.0)*(np.sum(neighborhood == cell))/(np.sum(neighborhood == A) + np.sum(neighborhood == B))
+				self.happiness[row+1,column+1] = current_happiness
+
+		self.unhappy_As += list(np.argwhere((self.gridworld == A) & (self.happiness <= self.tau)))
+		self.unhappy_Bs += list(np.argwhere((self.gridworld == B) & (self.happiness <= self.tau)))
+
+	def take_snapshot(self):
+		im = plt.imshow(self.gridworld, cmap = "bwr", animated = True)
+		self.ims.append([im])
+
+	## Empty method redefined in subclasses
+	def iterate_relocation(self):
+		return
+
+	def find_equilibrium(self):
+		n_iters = 0
+		try:
+			self.compute_happiness()
+			while (len(self.unhappy_As) > 0 or len(self.unhappy_Bs) > 0):
+				n_iters += 1
+				self.iterate_relocation()
+				self.take_snapshot()
+				self.compute_happiness()
+				if n_iters == self.max_iter:
+					break
+		except KeyboardInterrupt:
+			pass
+
+		print("Executed %d iterations of the Schelling Game, tau = %f" % (n_iters, self.tau))
+
+class SchellingSwapModel(SchellingSegregationModel):
+	def __init__(self, dim, tau, max_iter = 100):
+		SchellingSegregationModel.__init__(self, dim, tau, max_iter)
 		self.__initialize_types()
-		self.__take_snapshot()
+		self.take_snapshot()
 
 	def __initialize_types(self):
 		types = np.array([A, B])
 		positions = np.random.choice(types, (self.dim, self.dim))
 		self.gridworld[1:(self.dim+1),1:(self.dim+1)] = positions
 
-	def __compute_happiness(self):
-		for row in range(self.dim):
-			for column in range(self.dim):
-				neighborhood = self.gridworld[row:(row+3),column:(column+3)]
-				current_happiness = \
-					(1.0)*(np.sum(neighborhood == neighborhood[1,1]) - 1)/ \
-					(np.sum(neighborhood == A) + np.sum(neighborhood == B) - 1)
-				self.happiness[row+1,column+1] = current_happiness
-
-		self.unhappy_As += list(np.argwhere((self.gridworld == A) & (self.happiness <= self.tau)))
-		self.unhappy_Bs += list(np.argwhere((self.gridworld == B) & (self.happiness <= self.tau)))
-
-	def __take_snapshot(self):
-		im = plt.imshow(self.gridworld, cmap = "bwr", animated = True)
-		self.ims.append([im])
-
-	def __iterate_swaps(self):
+	def iterate_relocation(self):
 		for pair in range(min(len(self.unhappy_As), len(self.unhappy_Bs))):
 			curr_A = self.unhappy_As.pop()
 			curr_B = self.unhappy_Bs.pop()
 			self.gridworld[tuple(curr_A)] = B
 			self.gridworld[tuple(curr_B)] = A
-		self.__take_snapshot()
 
-	def find_equilibrium(self):
-		n_iters = 0
-		try:
-			self.__compute_happiness()
-			while (len(self.unhappy_As) > 0 or len(self.unhappy_Bs) > 0):
-				n_iters += 1
-				self.__iterate_swaps()
-				self.__compute_happiness()
-				if n_iters == self.max_iter:
-					break
-		except KeyboardInterrupt:
-			pass
+class SchellingJumpModel(SchellingSegregationModel):
+	def __init__(self, dim, tau, n_agents, pct_A, max_iter = 500):
+		assert(n_agents < (dim*dim))
+		SchellingSegregationModel.__init__(self, dim, tau, max_iter)
+		self.__initialize_types(n_agents, pct_A)
+		self.take_snapshot()
 
-		print("Executed %d iterations of the Swap Schelling Game, tau = %f" % (n_iters, self.tau))
+	def __initialize_types(self, n_agents, pct_A):
+		types = np.array([A, B, NO_OCCUPANT])
+		pct_A = (1.0)*(pct_A)*(n_agents/(self.dim*self.dim))
+		pct_B = (1.0 - pct_A)*(n_agents/(self.dim*self.dim))
+		weights = [pct_A, pct_B, (1.0 - pct_A - pct_B)]
+		positions = np.random.choice(types, (self.dim, self.dim), p = weights)
+		self.gridworld[1:(self.dim+1),1:(self.dim+1)] = positions
+
+	def iterate_relocation(self):
+		es = np.argwhere(self.gridworld == NO_OCCUPANT)
+		empty_spaces = es[(es[:,0] > 0) & (es[:,0] < (self.dim-1)) \
+			& (es[:,1] > 0) & (es[:,1] < (self.dim-1))]
+		np.random.shuffle(empty_spaces)
+		empty_spaces = list(empty_spaces)
+
+		unhappy_agents = self.unhappy_As + self.unhappy_Bs
+		self.unhappy_As.clear(); self.unhappy_Bs.clear()
+
+		while unhappy_agents and empty_spaces:
+			curr_agent = unhappy_agents.pop()
+			new_location = empty_spaces.pop()
+			self.gridworld[tuple(new_location)] = self.gridworld[tuple(curr_agent)]
+			self.gridworld[tuple(curr_agent)] = NO_OCCUPANT
+			empty_spaces.append(curr_agent)
 
 ############################################################################################
 
 def main():
 	fig = plt.figure()
-	model = SchellingSegregationModel(100, 0.5)
+	model = SchellingSwapModel(20, 0.5)
 	model.find_equilibrium()
-	ani = animation.ArtistAnimation(fig, model.ims, interval = 250, blit = True, repeat_delay = 1000)
-	plt.tick_params(axis = "both", which = "both", bottom = False, top = False, labelbottom = False)
+	ani = animation.ArtistAnimation(fig, model.ims, interval = 200, blit = True, repeat_delay = 1000)
+	plt.axis("off")
+	plt.title("Schelling Swap Segregation Game on a " + str(model.dim) + "x" + str(model.dim) + " grid")
 	plt.show()
 
 if __name__ == "__main__":
