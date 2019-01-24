@@ -21,7 +21,6 @@ class SwapSchellingGame(object):
 		self.ims = []
 		self.fig = plt.figure()
 		self.init_locations(pct_A)
-		self.take_snapshot()
 
 	def init_locations(self, pct_A):
 		self.grid = np.random.choice([A, B], (self.dim, self.dim), p = [pct_A, 1-pct_A])
@@ -46,6 +45,7 @@ class SwapSchellingGame(object):
 
 	def find_equilibrium(self):
 		n_iter = 0
+		self.take_snapshot()
 		while n_iter <= self.max_iter:
 			n_iter += 1
 			self.compute_grid_happiness()
@@ -64,16 +64,16 @@ class SwapSchellingGame(object):
 
 ############################################################################################
 
+COMMON_FAVORITE = 0 
 CONTENTNESS = 0
 DISTANCE = 1
 
 class CF_SwapSchellingGame(SwapSchellingGame):
 	def __init__(self, dim, tau, pct_A, max_iter):
 		super().__init__(dim, tau, pct_A, max_iter)
-
 		self.common_favorite = self.select_random_favorite()
-		print ("Common favorite node for all agents is " + str(self.common_favorite))
 		self.happiness = {}
+		print ("Common favorite node for all agents is " + str(self.common_favorite))
 
 	def select_random_favorite(self):
 		f = np.random.choice(range(self.dim**2))
@@ -117,6 +117,13 @@ class CF_SwapSchellingGame(SwapSchellingGame):
 			first = self.unhappy_agents[-min_agent].pop()
 			second = self.unhappy_agents[min_agent].pop()
 			self.grid[first] = min_agent; self.grid[second] = -min_agent
+
+	def take_snapshot(self):
+		tmp = self.grid[self.common_favorite].copy()
+		self.grid[self.common_favorite] = COMMON_FAVORITE
+		im = plt.imshow(self.grid, cmap = "bwr", animated = True)
+		self.ims.append([im])
+		self.grid[self.common_favorite] = tmp
 
 ############################################################################################
 
