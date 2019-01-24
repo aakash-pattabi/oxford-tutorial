@@ -3,12 +3,13 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import random
 import argparse
+from scipy.spatial import distance
 
 A = 1
 B = -1
 
 class SwapSchellingGame(object):
-	def __init__(self, dim, tau, pct_A, max_iter = 200):
+	def __init__(self, dim, tau, pct_A, max_iter):
 		self.dim = dim
 		self.tau = tau
 		self.max_iter = max_iter
@@ -27,10 +28,10 @@ class SwapSchellingGame(object):
 
 	def compute_grid_happiness(self):
 		for row in range(self.dim):
-			for column in range(self.dim):
-				h = self.compute_agent_happiness(row, column)
+			for col in range(self.dim):
+				h = self.compute_agent_happiness(row, col)
 				if h <= self.tau:
-					self.unhappy_agents[self.grid[(row, column)]].append((row, column))
+					self.unhappy_agents[self.grid[(row, col)]].append((row, col))
 
 	def compute_agent_happiness(self, row, col):
 		neighbors = self.grid[max(0, row-1):min(self.dim, row+2), max(0,col-1):min(self.dim, col+2)]
@@ -63,14 +64,73 @@ class SwapSchellingGame(object):
 
 ############################################################################################
 
+CONTENTNESS = 0
+DISTANCE = 1
+
+class CF_SwapSchellingGame(SwapSchellingGame):
+	def __init__(self, dim, tau, pct_A, max_iter):
+		super().__init__(dim, tau, pct_A, max_iter)
+
+		self.common_favorite = self.select_random_favorite()
+		print ("Common favorite node for all agents is " + str(self.common_favorite))
+		self.happiness = {}
+
+	def select_random_favorite(self):
+		f = np.random.choice(range(self.dim**2))
+		return np.unravel_index(f, (self.dim, self.dim))
+
+	def compute_grid_happiness(self):
+		for row in range(self.dim):
+			for col in range(self.dim):
+				h = self.compute_agent_happiness(row, col)
+				self.happiness[(row, col)] = h
+				if h[CONTENTNESS] <= self.tau:
+					self.unhappy_agents[self.grid[(row, col)]].append((row, col))
+
+	def compute_agent_happiness(self, row, col):
+		neighbors = self.grid[max(0, row-1):min(self.dim, row+2), max(0,col-1):min(self.dim, col+2)]
+		h = (np.sum(neighbors == self.grid[(row, col)])-1.0)/((neighbors.shape[0]*neighbors.shape[1])-1.0)
+		d = distance.euclidean((row, col), self.common_favorite)
+		return np.array([h, d])
+
+	'''
+	Suppose an agent of type A is unhappy (h, d) with h <= self.tau:
+		- The agent will switch with any agent of the opposite type who is also 
+		  unhappy, regardless of their distance to the CF goal. 
+
+	Suppose an agent of type A is happy (h, d) with h > self.tau:
+		- An unhappy agent of type B that is closer to the CF goal will not want to
+		  switch with this agent, as doing so will not situate them closer to other type Bs. 
+		- So, the only agents that will want to swap with this agent are unhappy agents of the 
+		  same type -- but swapping with these will make this agent unhappy.
+
+	==> Let each agent swap with the best (closet to goal/smallest d) unhappy agent of the
+		opposite type. 
+	'''
+	def swap(self):
+		min_agent = A if len(self.unhappy_agents[A]) < len(self.unhappy_agents[B]) else B
+		distances = np.array([self.happiness[agent][DISTANCE] for agent in self.unhappy_agents[min_agent]])
+		o = list(np.argsort(distances))
+		d = {self.unhappy_agents[min_agent][i] : o[i] for i in range(len(o))}
+		self.unhappy_agents[min_agent].sort(key = lambda x : d[x])
+		while self.unhappy_agents[min_agent]:
+			first = self.unhappy_agents[-min_agent].pop()
+			second = self.unhappy_agents[min_agent].pop()
+			self.grid[first] = min_agent; self.grid[second] = -min_agent
+
+############################################################################################
+
 def main():
 	parser = argparse.ArgumentParser()
-	parser.add_argument("dim", type=int)
-	parser.add_argument("tau", type=float)
-	parser.add_argument("pct_A", type=float)
+	parser.add_argument("--dim", type=int, default=25)
+	parser.add_argument("--tau", type=float, default=0.5)
+	parser.add_argument("--pct_A", type=float, default=0.5)
+	parser.add_argument("--max_iter", type=int, default=200)
+	parser.add_argument("--common_favorite", dest="cf", action="store_true")
 	args = parser.parse_args()
 
-	model = SwapSchellingGame(args.dim, args.tau, args.pct_A)
+	model = CF_SwapSchellingGame(args.dim, args.tau, args.pct_A, args.max_iter) if args.cf else \
+		SwapSchellingGame(args.dim, args.tau, args.pct_A, args.max_iter)
 	model.find_equilibrium()
 	model.animate()
 
