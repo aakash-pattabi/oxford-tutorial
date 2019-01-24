@@ -99,24 +99,43 @@ class CF_SwapSchellingGame(SwapSchellingGame):
 		  unhappy, regardless of their distance to the CF goal. 
 
 	Suppose an agent of type A is happy (h, d) with h > self.tau:
-		- An unhappy agent of type B that is closer to the CF goal will not want to
-		  switch with this agent, as doing so will not situate them closer to other type Bs. 
-		- So, the only agents that will want to swap with this agent are unhappy agents of the 
-		  same type -- but swapping with these will make this agent unhappy.
+		- They might switch with a type B agent who is closer to the goal iff their position 
+		  improves the happiness of the type B agent
 
-	==> Let each agent swap with the best (closet to goal/smallest d) unhappy agent of the
-		opposite type. 
+	==> Agents of both types and happiness states will swap. Unhappy As will swap with unhappy Bs. 
+		Happy As will swap with unhappy Bs. Happy Bs will swap with unhappy As. (If distance decreases.)
+		Only happy agents will not swap with each other. 
+
+	Algorithm:
+		For each agent:
+			If the agent is happy: 
+				Find an unhappy agent of opposite color closer to CF. If found, swap. If none, end. 
+			If the agent is unhappy:
+				Swap with a random unhappy agent of the opposite color.
 	'''
+	def is_happy(self, row, col):
+		return ((row, col) not in self.unhappy_agents[self.grid[(row, col)]])
+
+	def counterparts_exist(self, row, col):
+		return (len(self.unhappy_agents[-self.grid[(row, col)]]) > 0)
+
+	def execute_swap(self, row, col):
+		is_happy = self.is_happy(row, col)
+		distance_improvement_exists = \
+			self.unhappy_agents[-self.grid[(row, col)]][0][DISTANCE] < self.happiness[(row, col)][DISTANCE]
+		if (is_happy and distance_improvement_exists) or (not is_happy):
+			counterpart = self.unhappy_agents[-self.grid[(row, col)]].pop()
+			self.grid[counterpart] = self.grid[(row, col)]
+			self.grid[(row, col)] = -self.grid[(row, col)]
+
 	def swap(self):
-		min_agent = A if len(self.unhappy_agents[A]) < len(self.unhappy_agents[B]) else B
-		distances = np.array([self.happiness[agent][DISTANCE] for agent in self.unhappy_agents[min_agent]])
-		o = list(np.argsort(distances))
-		d = {self.unhappy_agents[min_agent][i] : o[i] for i in range(len(o))}
-		self.unhappy_agents[min_agent].sort(key = lambda x : d[x])
-		while self.unhappy_agents[min_agent]:
-			first = self.unhappy_agents[-min_agent].pop()
-			second = self.unhappy_agents[min_agent].pop()
-			self.grid[first] = min_agent; self.grid[second] = -min_agent
+		self.unhappy_agents[A].sort(key = lambda x : x[DISTANCE])
+		self.unhappy_agents[B].sort(key = lambda x : x[DISTANCE])
+		agents = list(range(self.dim**2)); random.shuffle(agents)
+		while agents and (self.unhappy_agents[A] or self.unhappy_agents[B]):
+			row, col = np.unravel_index(agents.pop(), (self.dim, self.dim))
+			if self.counterparts_exist(row, col):
+				self.execute_swap(row, col)
 
 	def take_snapshot(self):
 		tmp = self.grid[self.common_favorite].copy()

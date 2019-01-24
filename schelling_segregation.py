@@ -1,6 +1,7 @@
 import numpy as np 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import random
 
 ## Let the two types of agents be represented by +1 (A) and -1 (B) on the gridworld
 A = 1
@@ -46,7 +47,7 @@ class SchellingSegregationModel(object):
 		n_iters = 0
 		try:
 			self.compute_happiness()
-			while (len(self.unhappy_As) > 0 or len(self.unhappy_Bs) > 0):
+			while self.unhappy_As or self.unhappy_Bs:
 				n_iters += 1
 				self.iterate_relocation()
 				self.take_snapshot()
@@ -77,16 +78,16 @@ class SchellingSwapModel(SchellingSegregationModel):
 			self.gridworld[tuple(curr_B)] = A
 
 class SchellingJumpModel(SchellingSegregationModel):
-	def __init__(self, dim, tau, n_agents, pct_A, max_iter = 500):
-		assert(n_agents < (dim*dim))
+	def __init__(self, dim, tau, pct_agents, pct_A, max_iter = 10):
+		assert(pct_agents < 1)
 		SchellingSegregationModel.__init__(self, dim, tau, max_iter)
-		self.__initialize_types(n_agents, pct_A)
+		self.__initialize_types(pct_agents, pct_A)
 		self.take_snapshot()
 
-	def __initialize_types(self, n_agents, pct_A):
+	def __initialize_types(self, pct_agents, pct_A):
 		types = np.array([A, B, NO_OCCUPANT])
-		pct_A = (1.0)*(pct_A)*(n_agents/(self.dim*self.dim))
-		pct_B = (1.0 - pct_A)*(n_agents/(self.dim*self.dim))
+		pct_A = (1.0)*(pct_A)*(pct_agents)
+		pct_B = (1.0 - pct_A)*(pct_agents)
 		weights = [pct_A, pct_B, (1.0 - pct_A - pct_B)]
 		positions = np.random.choice(types, (self.dim, self.dim), p = weights)
 		self.gridworld[1:(self.dim+1),1:(self.dim+1)] = positions
@@ -97,12 +98,13 @@ class SchellingJumpModel(SchellingSegregationModel):
 			& (es[:,1] > 0) & (es[:,1] < (self.dim-1))]
 		np.random.shuffle(empty_spaces)
 		empty_spaces = list(empty_spaces)
+		print(self.gridworld)
+		random.shuffle(self.unhappy_As); random.shuffle(self.unhappy_Bs)
 
-		unhappy_agents = self.unhappy_As + self.unhappy_Bs
-		self.unhappy_As.clear(); self.unhappy_Bs.clear()
-
-		while unhappy_agents and empty_spaces:
-			curr_agent = unhappy_agents.pop()
+		while (self.unhappy_As or self.unhappy_Bs) and empty_spaces:
+			curr_agent = self.unhappy_As.pop() if len(self.unhappy_As) > 0 else \
+				self.unhappy_Bs.pop()
+			print(curr_agent)
 			new_location = empty_spaces.pop()
 			self.gridworld[tuple(new_location)] = self.gridworld[tuple(curr_agent)]
 			self.gridworld[tuple(curr_agent)] = NO_OCCUPANT
@@ -112,11 +114,12 @@ class SchellingJumpModel(SchellingSegregationModel):
 
 def main():
 	fig = plt.figure()
-	model = SchellingSwapModel(20, 0.5)
+	model = SchellingSwapModel(100, 0.5)
+	# model = SchellingJumpModel(10, 0.5, 0.75, 0.5)
 	model.find_equilibrium()
 	ani = animation.ArtistAnimation(fig, model.ims, interval = 200, blit = True, repeat_delay = 1000)
 	plt.axis("off")
-	plt.title("Schelling Swap Segregation Game on a " + str(model.dim) + "x" + str(model.dim) + " grid")
+	plt.title("Schelling Jump Segregation Game on a " + str(model.dim) + "x" + str(model.dim) + " grid")
 	plt.show()
 
 if __name__ == "__main__":
