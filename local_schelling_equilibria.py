@@ -14,24 +14,34 @@ class SchellingGame(object):
 
 	def init_placement(self, n_red, n_blue):
 		assert(n_red + n_blue < self.graph.GetNodes())
-		self.max_type = "Red" if n_red > n_blue else "Blue"
+		self.max_type = "Red" if n_red >= n_blue else "Blue"
 		self.min_type = "Red" if self.max_type == "Blue" else "Blue"
-		seed = self.graph.GetRndNId()
-		bfs_tree = snap.GetBfsTree(self.graph, seed, True, False)
 
-		n_assigned = 0
+		seed = self.graph.GetRndNId()
+		self.assignment[seed] = self.max_type
+		print("Seed node is ID #{}".format(seed))
+
+		hop_counts = snap.TIntPrV()
+		snap.GetNodesAtHops(self.graph, seed, hop_counts, False)
+		nodes_reachable = np.cumsum([item.GetVal2() for item in hop_counts])
+		min_hop = np.min(np.where(nodes_reachable >= max(n_red, n_blue))) + 1
+
+		n_assigned, cur_hop = 1, 0
 		max_type_neighbors = snap.TIntV()
 
 		# Drop red nodes on BFS tree
-		for node in bfs_tree.Nodes():
-			nid = node.GetId()
-			self.assignment[nid] = self.max_type
-			n_assigned += 1
-			neighbors = snap.TIntV()
-			snap.GetNodesAtHop(self.graph, nid, 1, neighbors, False)
-			max_type_neighbors.Union(neighbors)
-			if n_assigned == max(n_red, n_blue):
-				break
+		while n_assigned < max(n_red, n_blue):
+			cur_hop += 1
+			candidates = snap.TIntV()
+			snap.GetNodesAtHop(self.graph, seed, cur_hop, candidates, False)
+			for node in candidates:
+				self.assignment[node] = self.max_type
+				n_assigned += 1
+				neighbors = snap.TIntV()
+				snap.GetNodesAtHop(self.graph, node, 1, neighbors, False)
+				max_type_neighbors.Union(neighbors)
+				if n_assigned == max(n_red, n_blue):
+					break
 
 		# Drop blue nodes on nodes in graph with no neighboring red nodes
 		n_assigned = 0
@@ -79,7 +89,21 @@ class SchellingGame(object):
 					friends += 1
 				else:
 					enemies += 1
-		return(1.0*friends/(friends + enemies))
+
+		# No neighbors --> no happiness...
+		if (friends + enemies) == 0:
+			return 0
+
+		return(1.0 * friends/(friends + enemies))
+
+	# Entertain a deviation from old_nid --> new_nid; returns True if the agent in old_nid is... happier deviating
+	def is_happier_deviating(self, old_nid, new_nid):
+		assert(old_nid in self.assignment.keys() and new_nid not in self.assignment.keys())
+		cur_happiness = self.get_happiness_ratio(old_nid)
+		self.assignment[new_nid] = self.assignment.pop(old_nid)
+		new_happiness = self.get_happiness_ratio(new_nid)
+		self.assignment[old_nid] = self.assignment.pop(new_nid)
+		return (new_happiness > cur_happiness)
 
 	def check_equilibrium(self):
 		all_nodes = list(range(self.graph.GetNodes()))
@@ -87,22 +111,20 @@ class SchellingGame(object):
 
 		# We only need to make sure that no neighboring max_type agents would deviate
 		# to each empty node; min_type agents won't deviate by construction of the algorithm
-		for node in empty_nodes:
+		for empty_node in empty_nodes:
 			neighbors = snap.TIntV()
-			snap.GetNodesAtHop(self.graph, node, 1, neighbors, False)
-			max_type_happiness_at_empty = self.get_happiness_ratio(node, hypothetical_type = self.max_type)
-			neighboring_max_type_happiness = [self.get_happiness_ratio(neighb) for neighb in neighbors \
-				if (neighb in self.assignment.keys() and self.assignment[neighb] == self.max_type)]
-			if np.min(neighboring_max_type_happiness) < max_type_happiness_at_empty:
-				print("Some [red] neighbor to the middle path would deviate! This is not an equilibrium")
-				return 
+			snap.GetNodesAtHop(self.graph, empty_node, 1, neighbors, False)
+			for node in neighbors:
+				if (self.assignment[node] == self.max_type) and self.is_happier_deviating(node, empty_node):
+					print("{}-type node #{} would like to deviate to {}. Not an equilibrium!".format(self.max_type, node, empty_node))
+					return
 
 		print("This assignment is an equilibrium!")
 
 	def save_graph(self):
 		labels = snap.TIntStrH()
 		filled_nodes = self.assignment.keys()
-		assert(len(filled_nodes) > 0)
+		# assert(len(filled_nodes) > 0)
 		for i in range(self.graph.GetNodes()):
 			if i in filled_nodes:
 				labels[i] = str(i) + ": " + self.assignment[i]
