@@ -115,7 +115,8 @@ class SchellingGame(object):
 			neighbors = snap.TIntV()
 			snap.GetNodesAtHop(self.graph, empty_node, 1, neighbors, False)
 			for node in neighbors:
-				if (self.assignment[node] == self.max_type) and self.is_happier_deviating(node, empty_node):
+				node_is_max_type = (node in self.assignment.keys()) and (self.assignment[node] == self.max_type)
+				if node_is_max_type and self.is_happier_deviating(node, empty_node):
 					print("{}-type node #{} would like to deviate to {}. Not an equilibrium!".format(self.max_type, node, empty_node))
 					return
 
@@ -133,7 +134,7 @@ class SchellingGame(object):
 		snap.DrawGViz(self.graph, snap.gvlDot, "assignment.png", " ", labels)
 
 if __name__ == "__main__":
-	schell = SchellingGame(20, 30)
-	schell.init_placement(8, 8)
+	schell = SchellingGame(15, 30)
+	schell.init_placement(6, 6)
 	schell.check_equilibrium()
 	schell.save_graph()
